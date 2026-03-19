@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Ticket, History, RefreshCcw, LogOut } from 'lucide-react-native';
+import { Ticket, History, RefreshCcw, LogOut, Archive } from 'lucide-react-native';
 import { formatDateTime } from '../utils/dateFormatter';
 import { syncTickets } from '../services/syncService';
 import { getConductorSession, logoutConductor } from '../services/authService';
-import { getUnsyncedTicketSummary } from '../services/sqliteService';
+import {
+  archiveLocalShiftTickets,
+  getActiveShiftSummary,
+  getSyncedActiveTicketIds,
+  getUnsyncedTicketSummary,
+} from '../services/sqliteService';
+import { conductorApi } from '../services/apiClient';
 
 const HomeScreen = ({ navigation }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [syncing, setSyncing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
   const [conductorName, setConductorName] = useState('CONDUCTOR');
 
@@ -74,6 +81,65 @@ const HomeScreen = ({ navigation }) => {
     );
   };
 
+  const handleArchiveShift = async () => {
+    const unsyncedSummary = await getUnsyncedTicketSummary();
+    if (unsyncedSummary.total > 0) {
+      Alert.alert(
+        'Sync Required First',
+        'Please sync all active tickets before archiving this shift so the admin can see and manage them.'
+      );
+      return;
+    }
+
+    const shiftSummary = await getActiveShiftSummary();
+    if (shiftSummary.total === 0) {
+      Alert.alert('Nothing To Archive', 'There are no active shift tickets to move into archive.');
+      return;
+    }
+
+    Alert.alert(
+      'Archive Current Shift',
+      `This will refresh the conductor history for a fresh start.\n\nTickets: ${shiftSummary.total}\nPaid: ${shiftSummary.paid}\nUnpaid: ${shiftSummary.unpaid}\nVoid: ${shiftSummary.void}\nPaid Earnings: PHP ${Number(shiftSummary.paidEarnings).toFixed(2)}\nUnpaid Total: PHP ${Number(shiftSummary.unpaidEarnings).toFixed(2)}\n\nAll active synced tickets will be moved to archive and will still be visible to the admin for management.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Archive Shift',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setArchiving(true);
+              setSyncMessage('Archiving shift...');
+              const ticketIds = await getSyncedActiveTicketIds();
+              if (ticketIds.length === 0) {
+                setSyncMessage('No synced active tickets were found to archive.');
+                setTimeout(() => {
+                  setArchiving(false);
+                  setSyncMessage('');
+                }, 3000);
+                return;
+              }
+              await conductorApi.post('/tickets/archive', { ticketIds });
+              await archiveLocalShiftTickets();
+              setSyncMessage('Shift archived. History and earnings are now reset for a fresh start.');
+            } catch (error) {
+              setSyncMessage(
+                error.response?.data?.message ||
+                error.response?.data?.error ||
+                error.message ||
+                'Failed to archive shift.'
+              );
+            } finally {
+              setTimeout(() => {
+                setArchiving(false);
+                setSyncMessage('');
+              }, 3500);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
@@ -122,11 +188,22 @@ const HomeScreen = ({ navigation }) => {
         <TouchableOpacity 
           style={[styles.syncButton, syncing && styles.disabledButton]} 
           onPress={handleSync}
-          disabled={syncing}
+          disabled={syncing || archiving}
         >
           <RefreshCcw size={24} color="#FFF" />
           <Text style={styles.syncButtonText}>
             {syncing ? 'SYNCING...' : 'SYNC WITH BACKEND'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.archiveButton, archiving && styles.disabledButton]}
+          onPress={handleArchiveShift}
+          disabled={syncing || archiving}
+        >
+          <Archive size={22} color="#121212" />
+          <Text style={styles.archiveButtonText}>
+            {archiving ? 'ARCHIVING...' : 'ARCHIVE SHIFT'}
           </Text>
         </TouchableOpacity>
         {syncMessage !== '' && <Text style={styles.syncStatus}>{syncMessage}</Text>}
@@ -227,6 +304,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  archiveButton: {
+    backgroundColor: '#FFD700',
+    paddingVertical: 16,
+    paddingHorizontal: 28,
+    borderRadius: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+  },
   disabledButton: {
     opacity: 0.5,
   },
@@ -240,6 +327,13 @@ const styles = StyleSheet.create({
     color: '#FFD700',
     marginTop: 10,
     fontSize: 14,
+    textAlign: 'center',
+  },
+  archiveButtonText: {
+    color: '#121212',
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
 });
 

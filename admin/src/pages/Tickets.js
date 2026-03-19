@@ -9,6 +9,7 @@ function Tickets() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedConductor, setSelectedConductor] = useState('all');
   const [selectedPassengerType, setSelectedPassengerType] = useState('all');
+  const [selectedArchiveState, setSelectedArchiveState] = useState('active');
   const [loading, setLoading] = useState(true);
   const [alert, setAlert] = useState(null);
 
@@ -19,14 +20,20 @@ function Tickets() {
   useEffect(() => {
     const filtered = tickets.filter(t =>
       (t.ticketId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (t.passengerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         t.passengerType.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (t.conductorName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (t.routeName || '').toLowerCase().includes(searchQuery.toLowerCase())) &&
       (selectedConductor === 'all' || String(t.conductorId || 'unknown') === selectedConductor) &&
-      (selectedPassengerType === 'all' || t.passengerType === selectedPassengerType)
+      (selectedPassengerType === 'all' || t.passengerType === selectedPassengerType) &&
+      (
+        selectedArchiveState === 'all' ||
+        (selectedArchiveState === 'active' && !t.isArchived) ||
+        (selectedArchiveState === 'archived' && t.isArchived)
+      )
     );
     setFilteredTickets(filtered);
-  }, [searchQuery, selectedConductor, selectedPassengerType, tickets]);
+  }, [searchQuery, selectedConductor, selectedPassengerType, selectedArchiveState, tickets]);
 
   const fetchTickets = async () => {
     try {
@@ -48,10 +55,12 @@ function Tickets() {
       return;
     }
 
-    const headers = ['Ticket ID', 'Conductor', 'From', 'To', 'Route', 'Distance (KM)', 'Passenger Type', 'Fare (PHP)', 'Date'];
+    const headers = ['Ticket ID', 'Passenger', 'Conductor', 'Archive Status', 'From', 'To', 'Route', 'Distance (KM)', 'Passenger Type', 'Fare (PHP)', 'Date'];
     const rows = filteredTickets.map(t => [
       t.ticketId,
+      t.passengerName || '-',
       t.conductorName || 'Unknown',
+      t.isArchived ? 'Archived' : 'Active',
       t.origin || '-',
       t.destination || '-',
       t.routeName || '-',
@@ -96,7 +105,10 @@ function Tickets() {
       )}
 
       <div className="dashboard-header">
-        <h1>Tickets Management</h1>
+        <div>
+          <h1>Tickets Management</h1>
+          <p className="header-subtitle">Review active and archived shift tickets from conductors.</p>
+        </div>
         <button 
           className="btn btn-primary"
           onClick={fetchTickets}
@@ -140,6 +152,15 @@ function Tickets() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+          <select
+            className="table-filter-select"
+            value={selectedArchiveState}
+            onChange={(e) => setSelectedArchiveState(e.target.value)}
+          >
+            <option value="active">Active Only</option>
+            <option value="archived">Archived Only</option>
+            <option value="all">All Tickets</option>
+          </select>
           <select
             className="table-filter-select"
             value={selectedConductor}
@@ -191,7 +212,9 @@ function Tickets() {
               <thead>
                 <tr>
                   <th>Ticket ID</th>
+                  <th>Passenger</th>
                   <th>Conductor</th>
+                  <th>Status</th>
                   <th>From</th>
                   <th>To</th>
                   <th>Route</th>
@@ -205,7 +228,13 @@ function Tickets() {
                 {filteredTickets.map((ticket) => (
                   <tr key={ticket.id}>
                     <td className="name-cell">{ticket.ticketId}</td>
+                    <td>{ticket.passengerName || '-'}</td>
                     <td>{ticket.conductorName || 'Unknown'}</td>
+                    <td>
+                      <span className={`status-badge ${ticket.isArchived ? 'status-inactive' : 'status-active'}`}>
+                        {ticket.isArchived ? 'Archived' : 'Active'}
+                      </span>
+                    </td>
                     <td>{ticket.origin || '-'}</td>
                     <td>{ticket.destination || '-'}</td>
                     <td>{ticket.routeName || '-'}</td>

@@ -44,6 +44,8 @@ export const initDatabase = async () => {
       fare REAL NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      archived_at DATETIME,
+      is_archived INTEGER DEFAULT 0,
       synced INTEGER DEFAULT 0
     );
   `);
@@ -72,13 +74,20 @@ export const initDatabase = async () => {
   await safeExec(`
     ALTER TABLE tickets ADD COLUMN updated_at DATETIME;
   `);
+  await safeExec(`
+    ALTER TABLE tickets ADD COLUMN archived_at DATETIME;
+  `);
+  await safeExec(`
+    ALTER TABLE tickets ADD COLUMN is_archived INTEGER;
+  `);
 
   await safeRun(
     `
       UPDATE tickets
       SET payment_status = COALESCE(payment_status, 'unpaid'),
-          updated_at = COALESCE(updated_at, created_at)
-      WHERE payment_status IS NULL OR updated_at IS NULL
+          updated_at = COALESCE(updated_at, created_at),
+          is_archived = COALESCE(is_archived, 0)
+      WHERE payment_status IS NULL OR updated_at IS NULL OR is_archived IS NULL
     `
   );
 
@@ -140,12 +149,12 @@ export const saveTicket = async (ticket) => {
 
 export const getAllTickets = async () => {
   const database = await initDatabase();
-  return await database.getAllAsync('SELECT * FROM tickets ORDER BY created_at DESC');
+  return await database.getAllAsync('SELECT * FROM tickets WHERE COALESCE(is_archived, 0) = 0 ORDER BY created_at DESC');
 };
 
 export const getUnsyncedTickets = async () => {
   const database = await initDatabase();
-  return await database.getAllAsync('SELECT * FROM tickets WHERE synced = 0');
+  return await database.getAllAsync('SELECT * FROM tickets WHERE synced = 0 AND COALESCE(is_archived, 0) = 0');
 };
 
 export const markAsSynced = async (id) => {
@@ -185,7 +194,7 @@ export const getUnsyncedTicketSummary = async () => {
   const rows = await database.getAllAsync(`
     SELECT payment_status, COUNT(*) as count
     FROM tickets
-    WHERE synced = 0
+    WHERE synced = 0 AND COALESCE(is_archived, 0) = 0
     GROUP BY payment_status
   `);
 
@@ -205,6 +214,62 @@ export const getUnsyncedTicketSummary = async () => {
 export const getEarningsReport = async () => {
   const database = await initDatabase();
   return await database.getAllAsync(
-    'SELECT DATE(created_at) as date, SUM(fare) as total_earnings FROM tickets GROUP BY date ORDER BY date DESC'
+    `
+      SELECT
+        DATE(created_at) as date,
+        SUM(CASE WHEN payment_status = 'paid' THEN fare ELSE 0 END) as total_earnings,
+        SUM(CASE WHEN payment_status = 'unpaid' THEN fare ELSE 0 END) as total_unpaid
+      FROM tickets
+      WHERE COALESCE(is_archived, 0) = 0
+      GROUP BY date
+      ORDER BY date DESC
+    `
+  );
+};
+
+export const getActiveShiftSummary = async () => {
+  const database = await initDatabase();
+  const rows = await database.getAllAsync(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) as paid,
+      SUM(CASE WHEN payment_status = 'unpaid' THEN 1 ELSE 0 END) as unpaid,
+      SUM(CASE WHEN payment_status = 'void' THEN 1 ELSE 0 END) as void,
+      SUM(CASE WHEN payment_status = 'paid' THEN fare ELSE 0 END) as paid_earnings,
+      SUM(CASE WHEN payment_status = 'unpaid' THEN fare ELSE 0 END) as unpaid_earnings
+    FROM tickets
+    WHERE COALESCE(is_archived, 0) = 0
+  `);
+
+  const row = rows[0] || {};
+  return {
+    total: row.total || 0,
+    paid: row.paid || 0,
+    unpaid: row.unpaid || 0,
+    void: row.void || 0,
+    paidEarnings: row.paid_earnings || 0,
+    unpaidEarnings: row.unpaid_earnings || 0,
+  };
+};
+
+export const getSyncedActiveTicketIds = async () => {
+  const database = await initDatabase();
+  const rows = await database.getAllAsync(`
+    SELECT ticket_id
+    FROM tickets
+    WHERE synced = 1 AND COALESCE(is_archived, 0) = 0
+  `);
+
+  return rows.map((row) => row.ticket_id).filter(Boolean);
+};
+
+export const archiveLocalShiftTickets = async () => {
+  const database = await initDatabase();
+  await database.runAsync(
+    `
+      UPDATE tickets
+      SET is_archived = 1, archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE synced = 1 AND COALESCE(is_archived, 0) = 0
+    `
   );
 };

@@ -276,6 +276,8 @@ router.get('/tickets', (req, res) => {
         ticketId: row.ticket_id,
         passengerName: row.passenger_name || '',
         paymentStatus: row.payment_status || 'unpaid',
+        isArchived: Boolean(row.is_archived),
+        archivedAt: row.archived_at || null,
         distance: row.distance,
         passengerType: row.passenger_type,
         fare: row.fare,

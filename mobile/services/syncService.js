@@ -63,7 +63,14 @@ const syncSingleTicket = async (ticket, retryCount = 0) => {
       return { success: true, ticketId: ticket.ticket_id };
     }
   } catch (err) {
-    const errorMessage = err.response?.data?.message || err.message || 'Unknown error';
+    const errorMessage = err.response?.data?.message || err.response?.data?.error || err.message || 'Unknown error';
+
+    if (err.response?.status === 409) {
+      await markAsSynced(ticket.id);
+      await logSyncAttempt(ticket.ticket_id, 'success', 'Already existed on backend');
+      return { success: true, ticketId: ticket.ticket_id };
+    }
+
     console.error(`Failed to sync ticket ${ticket.ticket_id} (attempt ${retryCount + 1}/${MAX_RETRIES}):`, errorMessage);
 
     if (retryCount < MAX_RETRIES) {

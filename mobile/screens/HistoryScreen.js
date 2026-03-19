@@ -26,7 +26,10 @@ const PAYMENT_STATUSES = [
 
 const HistoryScreen = () => {
   const [tickets, setTickets] = useState([]);
-  const [totalToday, setTotalToday] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [paidToday, setPaidToday] = useState(0);
+  const [unpaidToday, setUnpaidToday] = useState(0);
+  const [unpaidCount, setUnpaidCount] = useState(0);
   const [editingTicket, setEditingTicket] = useState(null);
   const [editPassengerName, setEditPassengerName] = useState('');
   const [editPaymentStatus, setEditPaymentStatus] = useState('unpaid');
@@ -42,8 +45,10 @@ const HistoryScreen = () => {
 
     const earningList = await getEarningsReport();
     const today = new Date().toISOString().split('T')[0];
-    const todayEarn = earningList.find((item) => item.date === today)?.total_earnings || 0;
-    setTotalToday(todayEarn);
+    const todayEarn = earningList.find((item) => item.date === today) || {};
+    setPaidToday(todayEarn.total_earnings || 0);
+    setUnpaidToday(todayEarn.total_unpaid || 0);
+    setUnpaidCount(ticketList.filter((ticket) => ticket.payment_status === 'unpaid').length);
   };
 
   const openEditor = (ticket) => {
@@ -123,14 +128,42 @@ const HistoryScreen = () => {
     );
   };
 
+  const filteredTickets = tickets.filter((ticket) => {
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) {
+      return true;
+    }
+
+    const passengerName = String(ticket.passenger_name || '').toLowerCase();
+    const ticketId = String(ticket.ticket_id || '').toLowerCase();
+    const route = `${ticket.origin || ''} ${ticket.destination || ''} ${ticket.route_name || ''}`.toLowerCase();
+
+    return (
+      passengerName.includes(query) ||
+      ticketId.includes(query) ||
+      route.includes(query)
+    );
+  });
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.statsContainer}>
-        <View style={styles.statBox}>
-          <TrendingUp color="#FFD700" size={24} />
-          <View>
-            <Text style={styles.statLabel}>TOTAL EARNINGS (TODAY)</Text>
-            <Text style={styles.statValue}>PHP {totalToday.toFixed(2)}</Text>
+        <View style={styles.statsGrid}>
+          <View style={styles.statBox}>
+            <TrendingUp color="#22C55E" size={24} />
+            <View>
+              <Text style={styles.statLabel}>PAID EARNINGS (TODAY)</Text>
+              <Text style={styles.statValue}>PHP {paidToday.toFixed(2)}</Text>
+            </View>
+          </View>
+          <View style={[styles.statBox, styles.unpaidBox]}>
+            <TrendingUp color="#F59E0B" size={24} />
+            <View>
+              <Text style={styles.statLabel}>UNPAID TOTAL</Text>
+              <Text style={styles.statValue}>PHP {unpaidToday.toFixed(2)}</Text>
+              <Text style={styles.statSubtext}>{unpaidCount} unpaid ticket{unpaidCount === 1 ? '' : 's'}</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -143,12 +176,27 @@ const HistoryScreen = () => {
         </View>
       </View>
 
+      <View style={styles.searchWrapper}>
+        <TextInput
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search passenger name, ticket ID, or route"
+          placeholderTextColor="#666"
+          autoCapitalize="none"
+        />
+      </View>
+
       <FlatList
-        data={tickets}
+        data={filteredTickets}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
-        ListEmptyComponent={<Text style={styles.emptyText}>No tickets found.</Text>}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>
+            {searchQuery.trim() ? 'No matching passenger or ticket found.' : 'No tickets found.'}
+          </Text>
+        }
       />
 
       <Modal visible={!!editingTicket} animationType="slide" transparent>
@@ -214,6 +262,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
+  statsGrid: {
+    gap: 12,
+  },
   statBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -221,6 +272,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
     padding: 20,
     borderRadius: 15,
+  },
+  unpaidBox: {
+    backgroundColor: '#3B2D14',
   },
   statLabel: {
     color: '#AAA',
@@ -231,6 +285,12 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 32,
     fontWeight: '900',
+  },
+  statSubtext: {
+    color: '#FCD34D',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
   },
   listHeader: {
     flexDirection: 'row',
@@ -257,6 +317,20 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 20,
+  },
+  searchWrapper: {
+    paddingHorizontal: 20,
+    marginTop: 14,
+  },
+  searchInput: {
+    backgroundColor: '#1E1E1E',
+    color: '#FFF',
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
   },
   ticketCard: {
     backgroundColor: '#1E1E1E',

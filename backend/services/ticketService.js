@@ -1,7 +1,18 @@
 const db = require('../database/sqlite');
 
+const getTicketByTicketId = (ticketId) =>
+  new Promise((resolve, reject) => {
+    db.get('SELECT * FROM tickets WHERE ticket_id = ?', [ticketId], (err, row) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(row);
+      }
+    });
+  });
+
 const ticketService = {
-  createTicket: (ticketData) => {
+  createTicket: async (ticketData) => {
     const {
       ticket_id,
       distance,
@@ -15,6 +26,15 @@ const ticketService = {
       destination,
       route_name,
     } = ticketData;
+    const existingTicket = await getTicketByTicketId(ticket_id);
+    if (existingTicket) {
+      return {
+        id: existingTicket.id,
+        ...ticketData,
+        alreadyExists: true,
+      };
+    }
+
     return new Promise((resolve, reject) => {
       const query = `
         INSERT INTO tickets (
@@ -28,9 +48,10 @@ const ticketService = {
           conductor_name,
           origin,
           destination,
-          route_name
+          route_name,
+          updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `;
       db.run(
         query,
@@ -47,12 +68,27 @@ const ticketService = {
           destination,
           route_name,
         ],
-        function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve({ id: this.lastID, ...ticketData });
-        }
+        async function onInsert(err) {
+          if (err) {
+            if (err.message.includes('UNIQUE constraint failed')) {
+              try {
+                const duplicateTicket = await getTicketByTicketId(ticket_id);
+                resolve({
+                  id: duplicateTicket?.id,
+                  ...ticketData,
+                  alreadyExists: true,
+                });
+                return;
+              } catch (lookupError) {
+                reject(lookupError);
+                return;
+              }
+            }
+
+            reject(err);
+          } else {
+            resolve({ id: this.lastID, ...ticketData });
+          }
         }
       );
     });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database/sqlite');
+const { requireConductorAuth } = require('../middleware/auth');
 const { createRateLimit } = require('../middleware/rateLimit');
 const { createSignedToken, hashPassword, verifyPassword } = require('../utils/security');
 
@@ -162,6 +163,54 @@ router.post('/signup', authRateLimit, (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error',
+    });
+  }
+});
+
+router.post('/tickets/archive', requireConductorAuth, (req, res) => {
+  try {
+    const { ticketIds } = req.body;
+    const hasTicketIds = Array.isArray(ticketIds) && ticketIds.length > 0;
+    const archiveQuery = hasTicketIds
+      ? `
+          UPDATE tickets
+          SET is_archived = 1,
+              archived_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE ticket_id IN (${ticketIds.map(() => '?').join(', ')})
+            AND conductor_id = ?
+            AND COALESCE(is_archived, 0) = 0
+        `
+      : `
+          UPDATE tickets
+          SET is_archived = 1,
+              archived_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE conductor_id = ?
+            AND COALESCE(is_archived, 0) = 0
+        `;
+    const params = hasTicketIds ? [...ticketIds, req.auth.conductorId] : [req.auth.conductorId];
+
+    db.run(archiveQuery, params, function onArchive(err) {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to archive shift tickets',
+          error: err.message,
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Shift tickets archived successfully',
+        archivedCount: this.changes || 0,
+      });
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
     });
   }
 });

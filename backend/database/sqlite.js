@@ -9,6 +9,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.error('Error connecting to SQLite database:', err.message);
   } else {
     console.log('Connected to the SQLite database.');
+    db.configure('busyTimeout', 5000);
     initializeSchema().catch((error) => {
       console.error('Database initialization failed:', error.message);
     });
@@ -91,12 +92,15 @@ async function initializeSchema() {
   await ensureColumn('tickets', 'destination', 'TEXT');
   await ensureColumn('tickets', 'route_name', 'TEXT');
   await ensureColumn('tickets', 'updated_at', 'DATETIME');
+  await ensureColumn('tickets', 'archived_at', 'DATETIME');
+  await ensureColumn('tickets', 'is_archived', 'INTEGER');
   await runAsync(
     `
       UPDATE tickets
       SET payment_status = COALESCE(payment_status, 'unpaid'),
-          updated_at = COALESCE(updated_at, created_at)
-      WHERE payment_status IS NULL OR updated_at IS NULL
+          updated_at = COALESCE(updated_at, created_at),
+          is_archived = COALESCE(is_archived, 0)
+      WHERE payment_status IS NULL OR updated_at IS NULL OR is_archived IS NULL
     `
   );
 
